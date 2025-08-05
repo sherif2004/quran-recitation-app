@@ -1,14 +1,12 @@
 import streamlit as st
 import os
 import torch
+import torchaudio
 import pandas as pd
 import difflib
 import re
 import tempfile
-import numpy as np
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
-from pydub import AudioSegment
-from scipy.io import wavfile
 
 # الإعدادات
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -56,6 +54,7 @@ if os.path.exists(selected_audio):
 else:
     st.warning("⚠️ لا يوجد ملف صوتي لهذه الآية.")
 
+# نص صحيح للاختبار
 true_text = verse_text
 
 # رفع تلاوة المستخدم
@@ -63,21 +62,17 @@ st.markdown("### 🎙️ ارفع تلاوتك لهذه الآية:")
 user_audio = st.file_uploader("ارفع ملف صوتك (WAV/MP3)", type=["wav", "mp3"])
 
 if user_audio is not None:
-    # حفظ الملف المرفوع مؤقتًا
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
+    # ✅ حفظ الصوت مؤقتًا
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
         tmpfile.write(user_audio.read())
         tmpfile_path = tmpfile.name
 
-    # تحويله إلى WAV 16kHz mono باستخدام pydub
-    sound = AudioSegment.from_file(tmpfile_path)
-    sound = sound.set_frame_rate(16000).set_channels(1)
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_tmp:
-        sound.export(wav_tmp.name, format="wav")
-        sr, waveform_np = wavfile.read(wav_tmp.name)
-
-    # تحويل إلى Tensor
-    waveform = torch.tensor(waveform_np, dtype=torch.float32).unsqueeze(0) / 32768.0
+    # ✅ تحميل الملف المؤقت
+    waveform, sr = torchaudio.load(tmpfile_path)
+    if waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+    if sr != 16000:
+        waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)
 
     # تحويل الصوت إلى نص
     inputs = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt").to(device)

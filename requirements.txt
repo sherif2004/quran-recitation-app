@@ -1,6 +1,5 @@
 streamlit
 torch
+torchaudio
 transformers
 pandas
-pydub
-scipy

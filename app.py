@@ -5,6 +5,7 @@ import torchaudio
 import pandas as pd
 import difflib
 import re
+import tempfile
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 
 # الإعدادات
@@ -29,11 +30,11 @@ verse_texts = [
     ("001007", "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ")
 ]
 
-# استخدم حالة session لحفظ رقم الآية
+# حالة التطبيق
 if "verse_index" not in st.session_state:
     st.session_state.verse_index = 0
 
-# زر السابق
+# أزرار التنقل
 col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     if st.button("⬅️ السابق") and st.session_state.verse_index > 0:
@@ -42,29 +43,38 @@ with col3:
     if st.button("التالي ➡️") and st.session_state.verse_index < len(verse_texts) - 1:
         st.session_state.verse_index += 1
 
-# عرض الآية
+# معلومات الآية الحالية
 verse_id, verse_text = verse_texts[st.session_state.verse_index]
 st.markdown(f"### الآية {st.session_state.verse_index + 1}:\n📖 {verse_text}")
 
-# تشغيل الصوت
+# تشغيل الصوت المرتبط
 selected_audio = os.path.join(audio_dir, f"{verse_id}.mp3")
 if os.path.exists(selected_audio):
     st.audio(selected_audio, format="audio/mp3")
 else:
-    st.warning("⚠️ لا يوجد ملف صوتي لهذه الآية")
+    st.warning("⚠️ لا يوجد ملف صوتي لهذه الآية.")
 
+# نص صحيح للاختبار
 true_text = verse_text
 
-# رفع الصوت
+# رفع تلاوة المستخدم
 st.markdown("### 🎙️ ارفع تلاوتك لهذه الآية:")
 user_audio = st.file_uploader("ارفع ملف صوتك (WAV/MP3)", type=["wav", "mp3"])
 
-if user_audio:
-    waveform, sr = torchaudio.load(user_audio)
+if user_audio is not None:
+    # ✅ حفظ الصوت مؤقتًا
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
+        tmpfile.write(user_audio.read())
+        tmpfile_path = tmpfile.name
+
+    # ✅ تحميل الملف المؤقت
+    waveform, sr = torchaudio.load(tmpfile_path)
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
     if sr != 16000:
         waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)
+
+    # تحويل الصوت إلى نص
     inputs = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt").to(device)
     with torch.no_grad():
         generated_ids = model.generate(inputs["input_features"], max_new_tokens=200)

@@ -1,0 +1,5 @@
+streamlit
+torchaudio
+transformers
+torch
+pandas

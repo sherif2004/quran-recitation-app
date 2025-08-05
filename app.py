@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import torch
+import soundfile as sf
+import numpy as np
 import torchaudio
 import pandas as pd
 import difflib
@@ -19,7 +21,7 @@ model.to(device).eval()
 
 st.title("📖 مراجعة تلاوة سورة الفاتحة")
 
-# الآيات بالترتيب مع أرقامها
+# قائمة الآيات بالترتيب
 verse_texts = [
     ("001001", "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"),
     ("001002", "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ"),
@@ -30,11 +32,11 @@ verse_texts = [
     ("001007", "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ")
 ]
 
-# حالة التطبيق
+# إدارة الحالة للآية الحالية
 if "verse_index" not in st.session_state:
     st.session_state.verse_index = 0
 
-# أزرار التنقل
+# أزرار التنقل بين الآيات
 col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     if st.button("⬅️ السابق") and st.session_state.verse_index > 0:
@@ -43,18 +45,17 @@ with col3:
     if st.button("التالي ➡️") and st.session_state.verse_index < len(verse_texts) - 1:
         st.session_state.verse_index += 1
 
-# معلومات الآية الحالية
+# عرض الآية الحالية
 verse_id, verse_text = verse_texts[st.session_state.verse_index]
 st.markdown(f"### الآية {st.session_state.verse_index + 1}:\n📖 {verse_text}")
 
-# تشغيل الصوت المرتبط
+# تشغيل الصوت الصحيح للآية
 selected_audio = os.path.join(audio_dir, f"{verse_id}.mp3")
 if os.path.exists(selected_audio):
     st.audio(selected_audio, format="audio/mp3")
 else:
     st.warning("⚠️ لا يوجد ملف صوتي لهذه الآية.")
 
-# نص صحيح للاختبار
 true_text = verse_text
 
 # رفع تلاوة المستخدم
@@ -62,17 +63,22 @@ st.markdown("### 🎙️ ارفع تلاوتك لهذه الآية:")
 user_audio = st.file_uploader("ارفع ملف صوتك (WAV/MP3)", type=["wav", "mp3"])
 
 if user_audio is not None:
-    # ✅ حفظ الصوت مؤقتًا
+    # حفظ الملف في ملف مؤقت
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpfile:
         tmpfile.write(user_audio.read())
         tmpfile_path = tmpfile.name
 
-    # ✅ تحميل الملف المؤقت
-    waveform, sr = torchaudio.load(tmpfile_path)
+    # قراءة الملف باستخدام soundfile وتحويله إلى float32
+    audio_np, sr = sf.read(tmpfile_path)
+    waveform = torch.tensor(audio_np, dtype=torch.float32).unsqueeze(0)
+
+    # تحويل إلى مونو إذا كان ستيريو
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
+
+    # إعادة التشكيل إلى 16kHz
     if sr != 16000:
-        waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)
+        waveform = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)(waveform)
 
     # تحويل الصوت إلى نص
     inputs = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt").to(device)
@@ -86,7 +92,7 @@ if user_audio is not None:
     st.subheader("📜 الآية الصحيحة:")
     st.write(true_text)
 
-    # المقارنة
+    # المقارنة بين التلاوة والنص
     diff = list(difflib.ndiff(user_transcription.split(), true_text.split()))
     results = []
     for word in diff:
